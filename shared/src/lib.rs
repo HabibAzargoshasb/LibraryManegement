@@ -131,7 +131,9 @@ pub enum Request {
     ListBooks,
     BorrowBook {book_id: u32, member_id:u32},
     ReturnBook {book_id: u32, member_id: u32},
-
+    RemoveBook {book_id : u32},
+    EditBook { book_id: u32, title: String, author: String, genre: Genre},
+    SearchBook {query : String},
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum LibraryError{
