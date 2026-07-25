@@ -1,5 +1,5 @@
 mod state;
-use shared::{Book, Loan, Member, Request};
+use shared::{Book, Fine, Loan, Member, Request, Reservation};
 use state::LibraryState;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -97,6 +97,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             {
                                 loan.returned = true;
                             }
+                        }
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+
+                        let mut new_fines: Vec<Fine> = Vec::new();
+
+                        for loan in locked_state.loans.iter() {
+                            if loan.book_id == book_id
+                                && loan.member_id == member_id
+                                && loan.returned
+                            {
+                                if now > loan.due_date {
+                                    let overdue_days =
+                                        ((now - loan.due_date) / (24 * 60 * 60)) as u32;
+                                    let amount = overdue_days * 1000;
+                                    let new_fine =
+                                        Fine::new(member_id, book_id, overdue_days, amount);
+                                    new_fines.push(new_fine);
+                                }
+                            }
+                        }
+
+                        for fine in new_fines {
+                            println!(
+                                "Fine created for member {}: {} overdue days",
+                                fine.member_id, fine.overdue_days
+                            );
+                            locked_state.fines.push(fine);
                         }
                     }
                 }
@@ -198,6 +228,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     println!("Search results {:?}", results);
+                }
+                Request::ReserveBook { book_id, member_id } => {
+                    let mut locked_state = state.lock().await;
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let new_reservation = Reservation::new(book_id, member_id, now);
+                    locked_state.reservations.push(new_reservation);
+                    println!("Book {} reserved by member{}", book_id, member_id);
                 }
             }
         });

@@ -53,6 +53,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     send_request(&add_book).await?;
     sleep(Duration::from_millis(500)).await;
 
+    let add_book_2 = Request::AddBook {
+        title: "Brave New World".to_string(),
+        author: "Aldous Huxley".to_string(),
+        genre: Genre::Novel,
+    };
+    send_request(&add_book_2).await?;
+    sleep(Duration::from_millis(500)).await;
+
     let borrow_book = Request::BorrowBook {
         book_id: 1,
         member_id: 1,
@@ -60,8 +68,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     send_request(&borrow_book).await?;
     sleep(Duration::from_millis(500)).await;
 
+    let reserve_book = Request::ReserveBook {
+        book_id: 2,
+        member_id: 1,
+    };
+    send_request(&reserve_book).await?;
+    sleep(Duration::from_millis(500)).await;
+
     let list_books = Request::ListBooks;
     send_request(&list_books).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let return_book = Request::ReturnBook {
+        book_id: 1,
+        member_id: 1,
+    };
+    send_request(&return_book).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let list_books_final = Request::ListBooks;
+    send_request(&list_books_final).await?;
 
     Ok(())
 }

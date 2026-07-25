@@ -138,6 +138,7 @@ pub enum Request {
     RemoveMember {member_id: u32},
     EditMember { member_id: u32, name: String},
     SearchMember { query: String},
+    ReserveBook {book_id : u32, member_id: u32},
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum LibraryError{
