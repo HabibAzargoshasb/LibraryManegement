@@ -1,7 +1,7 @@
-use shared::{Genre, Request};
-use std::time::Duration;
+use shared::{Request, Genre};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use std::time::Duration;
 use tokio::time::sleep;
 
 async fn send_request(request: &Request) -> Result<(), Box<dyn std::error::Error>> {
@@ -16,68 +16,52 @@ async fn send_request(request: &Request) -> Result<(), Box<dyn std::error::Error
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let add_request = Request::AddBook {
+    let add_member_1 = Request::AddMember {
+        name: "Ali Rezaei".to_string(),
+    };
+    send_request(&add_member_1).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let add_member_2 = Request::AddMember {
+        name: "Sara Ahmadi".to_string(),
+    };
+    send_request(&add_member_2).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let search_member = Request::SearchMember {
+        query: "Ali".to_string(),
+    };
+    send_request(&search_member).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let edit_member = Request::EditMember {
+        member_id: 1,
+        name: "Ali Rezaei Jr.".to_string(),
+    };
+    send_request(&edit_member).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let remove_member = Request::RemoveMember { member_id: 2 };
+    send_request(&remove_member).await?;
+    sleep(Duration::from_millis(500)).await;
+
+    let add_book = Request::AddBook {
         title: "1984".to_string(),
         author: "George Orwell".to_string(),
         genre: Genre::Novel,
     };
-    send_request(&add_request).await?;
-    sleep(Duration::from_millis(500)).await;
-    let add_request_2 = Request::AddBook {
-        title: "Brave New World".to_string(),
-        author: "Aldous Huxley".to_string(),
-        genre: Genre::Novel,
-    };
-    send_request(&add_request_2).await?;
+    send_request(&add_book).await?;
     sleep(Duration::from_millis(500)).await;
 
-    let borrow_request = Request::BorrowBook {
+    let borrow_book = Request::BorrowBook {
         book_id: 1,
         member_id: 1,
     };
-    send_request(&borrow_request).await?;
+    send_request(&borrow_book).await?;
     sleep(Duration::from_millis(500)).await;
 
-    let list_request_1 = Request::ListBooks;
-    send_request(&list_request_1).await?;
-    sleep(Duration::from_millis(500)).await;
-
-    let return_request = Request::ReturnBook {
-        book_id: 1,
-        member_id: 1,
-    };
-    send_request(&return_request).await?;
-    sleep(Duration::from_millis(500)).await;
-
-    let list_request_2 = Request::ListBooks;
-    send_request(&list_request_2).await?;
-    sleep(Duration::from_millis(500)).await;
-    let search_request = Request::SearchBook {
-        query: "Orwell".to_string(),
-    };
-    send_request(&search_request).await?;
-    sleep(Duration::from_millis(500)).await;
-
-    sleep(Duration::from_millis(500)).await;
-
-    let edit_request = Request::EditBook {
-        book_id: 1,
-        title: "Animal Farm".to_string(),
-        author: "George Orwell".to_string(),
-        genre: Genre::Novel,
-    };
-    send_request(&edit_request).await?;
-    sleep(Duration::from_millis(500)).await;
-
-    let list_request_final = Request::ListBooks;
-    send_request(&list_request_final).await?;
-
-    let remove_request = Request::RemoveBook { book_id: 1 };
-    send_request(&remove_request).await?;
-    sleep(Duration::from_millis(500)).await;
-
-    let list_request_3 = Request::ListBooks;
-    send_request(&list_request_3).await?;
+    let list_books = Request::ListBooks;
+    send_request(&list_books).await?;
 
     Ok(())
 }

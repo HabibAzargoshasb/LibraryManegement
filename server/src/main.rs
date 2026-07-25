@@ -1,5 +1,5 @@
 mod state;
-use shared::{Book, Loan, Request};
+use shared::{Book, Loan, Member, Request};
 use state::LibraryState;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -145,6 +145,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for book in locked_state.books.iter() {
                         if book.title.contains(&query) || book.author.contains(&query) {
                             results.push(book.clone());
+                        }
+                    }
+                    println!("Search results {:?}", results);
+                }
+                Request::AddMember { name } => {
+                    let mut locked_state = state.lock().await;
+                    let new_id = locked_state.next_member_id;
+                    let new_member = Member::new(new_id, name);
+                    locked_state.members.push(new_member);
+                    locked_state.next_member_id += 1;
+                    println!("Member added with id {}", new_id);
+                }
+                Request::RemoveMember { member_id } => {
+                    let mut locked_state = state.lock().await;
+                    let mut index_to_remove: Option<usize> = None;
+                    let mut current_index: usize = 0;
+                    for member in locked_state.members.iter() {
+                        if member.id == member_id {
+                            index_to_remove = Some(current_index);
+                        }
+                        current_index += 1;
+                    }
+                    if let Some(index) = index_to_remove {
+                        locked_state.members.remove(index);
+                        println!("Member {} removed", member_id);
+                    } else {
+                        println!("Member {} not found", member_id);
+                    }
+                }
+                Request::EditMember { member_id, name } => {
+                    let mut locked_state = state.lock().await;
+                    let mut found = false;
+                    for member in locked_state.members.iter_mut() {
+                        if member.id == member_id {
+                            found = true;
+                            member.name = name.clone();
+                        }
+                    }
+                    if found {
+                        println!("Member {} updated", member_id);
+                    } else {
+                        println!("Member {} not found", member_id);
+                    }
+                }
+                Request::SearchMember { query } => {
+                    let locked_state = state.lock().await;
+                    let mut results: Vec<Member> = Vec::new();
+                    for member in locked_state.members.iter() {
+                        if member.name.contains(&query) {
+                            results.push(member.clone());
                         }
                     }
                     println!("Search results {:?}", results);

@@ -134,6 +134,10 @@ pub enum Request {
     RemoveBook {book_id : u32},
     EditBook { book_id: u32, title: String, author: String, genre: Genre},
     SearchBook {query : String},
+    AddMember { name : String},
+    RemoveMember {member_id: u32},
+    EditMember { member_id: u32, name: String},
+    SearchMember { query: String},
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum LibraryError{
@@ -146,6 +150,7 @@ pub enum LibraryError{
  pub enum Response{
     Success,
     Books(Vec<Book>),
+    Members(Vec<Member>),
     BooksAdded {book_id: u32},
     Error(LibraryError),
  }
