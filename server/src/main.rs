@@ -1,4 +1,6 @@
 mod state;
+mod logger;
+use logger::log_action;
 use shared::{Book, Fine, LibraryError, Loan, Member, Request, Reservation, Response};
 use state::LibraryState;
 use std::sync::Arc;
