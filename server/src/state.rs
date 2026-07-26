@@ -1,4 +1,6 @@
-use shared::{Book,Member,Loan,Reservation, Fine};
+use serde::{Deserialize, Serialize};
+use shared::{Book, Fine, Loan, Member, Reservation};
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LibraryState {
     pub books: Vec<Book>,
     pub members: Vec<Member>,
@@ -19,6 +21,19 @@ impl LibraryState {
             fines: Vec::new(),
             next_book_id: 1,
             next_member_id: 1,
+        }
+    }
+    pub fn save_to_file(&self, path: &str) {
+        let json = serde_json::to_string(self).unwrap();
+        std::fs::write(path, json).unwrap();
+    }
+    pub fn load_from_file(path: &str) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(state) => state,
+                Err(_) => LibraryState::new(),
+            },
+            Err(_) => LibraryState::new(),
         }
     }
 }

@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     println!("Server is listening on 127.0.0.1:8080");
-    let state = Arc::new(Mutex::new(LibraryState::new()));
+   let state = Arc::new(Mutex::new(LibraryState::load_from_file("library_data.json")));
     loop {
         let (socket, addr) = listener.accept().await?;
         let state = Arc::clone(&state);
@@ -33,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     locked_state.books.push(new_book);
                     locked_state.next_book_id += 1;
                     println!("Book added with id {}", new_id);
+                    locked_state.save_to_file("library_data.json");
                 }
                 Request::ListBooks => {
                     let locked_state = state.lock().await;
@@ -68,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let due = now + (14 * 24 * 60 * 60);
                         let new_loan = Loan::new(book_id, member_id, now, due);
                         locked_state.loans.push(new_loan);
+                        locked_state.save_to_file("library_data.json");
                     }
                 }
                 Request::ReturnBook { book_id, member_id } => {
@@ -127,6 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 fine.member_id, fine.overdue_days
                             );
                             locked_state.fines.push(fine);
+                            locked_state.save_to_file("library_data.json");
                         }
                     }
                 }
@@ -143,6 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(index) = index_to_remove {
                         locked_state.books.remove(index);
                         println!("Book {} removed", book_id);
+                        locked_state.save_to_file("library_data.json");
                     } else {
                         println!("Book {} not found.", book_id);
                     }
@@ -165,6 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if found {
                         println!("Book {} updated", book_id);
+                        locked_state.save_to_file("library_data.json");
                     } else {
                         println!("Book {} not found", book_id);
                     }
@@ -186,6 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     locked_state.members.push(new_member);
                     locked_state.next_member_id += 1;
                     println!("Member added with id {}", new_id);
+                    locked_state.save_to_file("library_data.json");
                 }
                 Request::RemoveMember { member_id } => {
                     let mut locked_state = state.lock().await;
@@ -200,6 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(index) = index_to_remove {
                         locked_state.members.remove(index);
                         println!("Member {} removed", member_id);
+                        locked_state.save_to_file("library_data.json");
                     } else {
                         println!("Member {} not found", member_id);
                     }
@@ -215,6 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if found {
                         println!("Member {} updated", member_id);
+                        locked_state.save_to_file("library_data.json");
                     } else {
                         println!("Member {} not found", member_id);
                     }
@@ -238,6 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let new_reservation = Reservation::new(book_id, member_id, now);
                     locked_state.reservations.push(new_reservation);
                     println!("Book {} reserved by member{}", book_id, member_id);
+                    locked_state.save_to_file("library_data.json");
                 }
             }
         });
