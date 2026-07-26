@@ -1,16 +1,18 @@
 mod state;
-use shared::{Book, Fine, Loan, Member, Request, Reservation};
+use shared::{Book, Fine, LibraryError, Loan, Member, Request, Reservation, Response};
 use state::LibraryState;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     println!("Server is listening on 127.0.0.1:8080");
-   let state = Arc::new(Mutex::new(LibraryState::load_from_file("library_data.json")));
+    let state = Arc::new(Mutex::new(LibraryState::load_from_file(
+        "library_data.json",
+    )));
     loop {
         let (socket, addr) = listener.accept().await?;
         let state = Arc::clone(&state);
@@ -32,12 +34,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let new_book = Book::new(new_id, title, author, genre);
                     locked_state.books.push(new_book);
                     locked_state.next_book_id += 1;
-                    println!("Book added with id {}", new_id);
                     locked_state.save_to_file("library_data.json");
+                    drop(locked_state);
+
+                    let response = Response::BooksAdded { book_id: new_id };
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::ListBooks => {
                     let locked_state = state.lock().await;
-                    println!("Books: {:?}", locked_state.books);
+                    let books_list = locked_state.books.clone();
+                    drop(locked_state);
+
+                    let response = Response::Books(books_list);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::BorrowBook { book_id, member_id } => {
                     let mut locked_state = state.lock().await;
@@ -50,18 +71,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if !book.is_borrowed {
                                 book.is_borrowed = true;
                                 successfully_borrowed = true;
-                                println!("Book {} borrowed by member {}", book_id, member_id);
-                            } else {
-                                println!("Book {} is already borrowed", book_id);
                             }
                         }
                     }
 
-                    if !found {
-                        println!("Book {} not found", book_id);
-                    }
-
-                    if successfully_borrowed {
+                    let response = if !found {
+                        Response::Error(LibraryError::BookNotFound { book_id })
+                    } else if !successfully_borrowed {
+                        Response::Error(LibraryError::BookAlreadyBorrowed)
+                    } else {
                         let now = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
@@ -70,28 +88,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let new_loan = Loan::new(book_id, member_id, now, due);
                         locked_state.loans.push(new_loan);
                         locked_state.save_to_file("library_data.json");
-                    }
+                        Response::Success
+                    };
+
+                    drop(locked_state);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::ReturnBook { book_id, member_id } => {
                     let mut locked_state = state.lock().await;
                     let mut found = false;
                     let mut successfully_returned = false;
+
                     for book in locked_state.books.iter_mut() {
                         if book.id == book_id {
                             found = true;
                             if book.is_borrowed {
                                 book.is_borrowed = false;
                                 successfully_returned = true;
-                                println!("Book {} returned by member {}", book_id, member_id);
-                            } else {
-                                println!("Book {} was not borrowed", book_id);
                             }
                         }
                     }
-                    if !found {
-                        println!(" Book {} not found", book_id);
-                    }
-                    if successfully_returned {
+
+                    let response = if !found {
+                        Response::Error(LibraryError::BookNotFound { book_id })
+                    } else if !successfully_returned {
+                        Response::Error(LibraryError::BookNotBorrowed)
+                    } else {
                         for loan in locked_state.loans.iter_mut() {
                             if loan.book_id == book_id
                                 && loan.member_id == member_id
@@ -100,13 +128,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 loan.returned = true;
                             }
                         }
+
                         let now = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_secs();
 
                         let mut new_fines: Vec<Fine> = Vec::new();
-
                         for loan in locked_state.loans.iter() {
                             if loan.book_id == book_id
                                 && loan.member_id == member_id
@@ -124,14 +152,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
 
                         for fine in new_fines {
-                            println!(
-                                "Fine created for member {}: {} overdue days",
-                                fine.member_id, fine.overdue_days
-                            );
                             locked_state.fines.push(fine);
-                            locked_state.save_to_file("library_data.json");
                         }
-                    }
+
+                        locked_state.save_to_file("library_data.json");
+                        Response::Success
+                    };
+
+                    drop(locked_state);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::RemoveBook { book_id } => {
                     let mut locked_state = state.lock().await;
@@ -143,13 +178,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         current_index += 1;
                     }
-                    if let Some(index) = index_to_remove {
+                    let response = if let Some(index) = index_to_remove {
                         locked_state.books.remove(index);
-                        println!("Book {} removed", book_id);
                         locked_state.save_to_file("library_data.json");
+                        Response::Success
                     } else {
-                        println!("Book {} not found.", book_id);
-                    }
+                        Response::Error(LibraryError::BookNotFound { book_id })
+                    };
+                    drop(locked_state);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::EditBook {
                     book_id,
@@ -167,12 +210,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             book.genre = genre.clone();
                         }
                     }
-                    if found {
-                        println!("Book {} updated", book_id);
+                    let response = if found {
                         locked_state.save_to_file("library_data.json");
+                        Response::Success
                     } else {
-                        println!("Book {} not found", book_id);
-                    }
+                        Response::Error(LibraryError::BookNotFound { book_id })
+                    };
+                    drop(locked_state);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::SearchBook { query } => {
                     let locked_state = state.lock().await;
@@ -182,7 +233,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             results.push(book.clone());
                         }
                     }
-                    println!("Search results {:?}", results);
+                    drop(locked_state);
+
+                    let response = Response::Books(results);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::AddMember { name } => {
                     let mut locked_state = state.lock().await;
@@ -190,8 +250,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let new_member = Member::new(new_id, name);
                     locked_state.members.push(new_member);
                     locked_state.next_member_id += 1;
-                    println!("Member added with id {}", new_id);
                     locked_state.save_to_file("library_data.json");
+                    drop(locked_state);
+
+                    let response = Response::MemberAdded { member_id: new_id };
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::RemoveMember { member_id } => {
                     let mut locked_state = state.lock().await;
@@ -203,13 +272,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         current_index += 1;
                     }
-                    if let Some(index) = index_to_remove {
+
+                    let response = if let Some(index) = index_to_remove {
                         locked_state.members.remove(index);
-                        println!("Member {} removed", member_id);
                         locked_state.save_to_file("library_data.json");
+                        Response::Success
                     } else {
-                        println!("Member {} not found", member_id);
-                    }
+                        Response::Error(LibraryError::MemberNotFound { member_id })
+                    };
+
+                    drop(locked_state);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::EditMember { member_id, name } => {
                     let mut locked_state = state.lock().await;
@@ -220,12 +299,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             member.name = name.clone();
                         }
                     }
-                    if found {
-                        println!("Member {} updated", member_id);
+
+                    let response = if found {
                         locked_state.save_to_file("library_data.json");
+                        Response::Success
                     } else {
-                        println!("Member {} not found", member_id);
-                    }
+                        Response::Error(LibraryError::MemberNotFound { member_id })
+                    };
+
+                    drop(locked_state);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::SearchMember { query } => {
                     let locked_state = state.lock().await;
@@ -235,7 +324,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             results.push(member.clone());
                         }
                     }
-                    println!("Search results {:?}", results);
+                    drop(locked_state);
+
+                    let response = Response::Members(results);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
                 Request::ReserveBook { book_id, member_id } => {
                     let mut locked_state = state.lock().await;
@@ -245,8 +343,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .as_secs();
                     let new_reservation = Reservation::new(book_id, member_id, now);
                     locked_state.reservations.push(new_reservation);
-                    println!("Book {} reserved by member{}", book_id, member_id);
                     locked_state.save_to_file("library_data.json");
+                    drop(locked_state);
+
+                    let response = Response::Success;
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
                 }
             }
         });
