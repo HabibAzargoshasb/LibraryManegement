@@ -67,6 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("10. Edit Member");
         println!("11. Search Member");
         println!("12. Reserve Book");
+        println!("13. Generate Report");
+        println!("14. View Log");
 
         let choice = read_input("Choice: ");
 
@@ -95,7 +97,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "4" => {
                 let book_id = read_u32("Book ID: ");
                 let member_id = read_u32("Member ID: ");
-                Some(Request::ReturnBook { book_id, member_id })
+                let rating_input = read_input(" Rating(1-5, or leave empty to skip): ");
+                let rating = if rating_input.is_empty() {
+                    None
+                } else {
+                    rating_input.parse::<u8>().ok()
+                };
+                Some(Request::ReturnBook {
+                    book_id,
+                    member_id,
+                    rating,
+                })
             }
             "5" => {
                 let book_id = read_u32("Book ID: ");
@@ -139,6 +151,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let member_id = read_u32("Member ID: ");
                 Some(Request::ReserveBook { book_id, member_id })
             }
+            "13" => Some(Request::GenerateReport),
+            "14" => Some(Request::ViewLog),
             _ => {
                 println!("Invalid choice.");
                 None

@@ -139,6 +139,7 @@ pub enum Request {
     ReturnBook {
         book_id: u32,
         member_id: u32,
+        rating: Option<u8>,
     },
     RemoveBook {
         book_id: u32,
@@ -169,6 +170,8 @@ pub enum Request {
         book_id: u32,
         member_id: u32,
     },
+    GenerateReport,
+    ViewLog,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum LibraryError {
@@ -185,4 +188,5 @@ pub enum Response {
     BooksAdded { book_id: u32 },
     Error(LibraryError),
     MemberAdded { member_id: u32 },
+    Report(String),
 }

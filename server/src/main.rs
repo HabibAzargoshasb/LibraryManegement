@@ -1,5 +1,5 @@
-mod state;
 mod logger;
+mod state;
 use logger::log_action;
 use shared::{Book, Fine, LibraryError, Loan, Member, Request, Reservation, Response};
 use state::LibraryState;
@@ -33,10 +33,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => {
                     let mut locked_state = state.lock().await;
                     let new_id = locked_state.next_book_id;
-                    let new_book = Book::new(new_id, title, author, genre);
+                    let new_book = Book::new(new_id, title.clone(), author.clone(), genre);
                     locked_state.books.push(new_book);
                     locked_state.next_book_id += 1;
                     locked_state.save_to_file("library_data.json");
+                    log_action(&format!(
+                        "Book added: id={}, title={}, author={}",
+                        new_id, title, author
+                    ));
                     drop(locked_state);
 
                     let response = Response::BooksAdded { book_id: new_id };
@@ -90,6 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let new_loan = Loan::new(book_id, member_id, now, due);
                         locked_state.loans.push(new_loan);
                         locked_state.save_to_file("library_data.json");
+                        log_action(&format!(
+                            "Book {} borrowed by member {}",
+                            book_id, member_id
+                        ));
                         Response::Success
                     };
 
@@ -102,7 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap();
                     reader.get_mut().write_all(b"\n").await.unwrap();
                 }
-                Request::ReturnBook { book_id, member_id } => {
+                Request::ReturnBook {
+                    book_id,
+                    member_id,
+                    rating,
+                } => {
                     let mut locked_state = state.lock().await;
                     let mut found = false;
                     let mut successfully_returned = false;
@@ -157,7 +169,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             locked_state.fines.push(fine);
                         }
 
+                        if let Some(score) = rating {
+                            for book in locked_state.books.iter_mut() {
+                                if book.id == book_id {
+                                    book.ratings.push(score);
+                                }
+                            }
+                        }
+
                         locked_state.save_to_file("library_data.json");
+                        log_action(&format!(
+                            "Book {} returned by member {}",
+                            book_id, member_id
+                        ));
                         Response::Success
                     };
 
@@ -183,6 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let response = if let Some(index) = index_to_remove {
                         locked_state.books.remove(index);
                         locked_state.save_to_file("library_data.json");
+                        log_action(&format!("Book {} removed", book_id));
                         Response::Success
                     } else {
                         Response::Error(LibraryError::BookNotFound { book_id })
@@ -214,6 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     let response = if found {
                         locked_state.save_to_file("library_data.json");
+                        log_action(&format!("Book {} updated", book_id));
                         Response::Success
                     } else {
                         Response::Error(LibraryError::BookNotFound { book_id })
@@ -249,10 +275,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Request::AddMember { name } => {
                     let mut locked_state = state.lock().await;
                     let new_id = locked_state.next_member_id;
-                    let new_member = Member::new(new_id, name);
+                    let new_member = Member::new(new_id, name.clone());
                     locked_state.members.push(new_member);
                     locked_state.next_member_id += 1;
                     locked_state.save_to_file("library_data.json");
+                    log_action(&format!("Member added: id={}, name={}", new_id, name));
                     drop(locked_state);
 
                     let response = Response::MemberAdded { member_id: new_id };
@@ -278,6 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let response = if let Some(index) = index_to_remove {
                         locked_state.members.remove(index);
                         locked_state.save_to_file("library_data.json");
+                        log_action(&format!("Member {} removed", member_id));
                         Response::Success
                     } else {
                         Response::Error(LibraryError::MemberNotFound { member_id })
@@ -304,6 +332,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let response = if found {
                         locked_state.save_to_file("library_data.json");
+                        log_action(&format!("Member {} updated", member_id));
                         Response::Success
                     } else {
                         Response::Error(LibraryError::MemberNotFound { member_id })
@@ -346,9 +375,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let new_reservation = Reservation::new(book_id, member_id, now);
                     locked_state.reservations.push(new_reservation);
                     locked_state.save_to_file("library_data.json");
+                    log_action(&format!(
+                        "Book {} reserved by member {}",
+                        book_id, member_id
+                    ));
                     drop(locked_state);
 
                     let response = Response::Success;
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
+                }
+                Request::ViewLog => {
+                    let content = match std::fs::read_to_string("operation_log.txt") {
+                        Ok(text) => text,
+                        Err(_) => String::from(" No log entries yet"),
+                    };
+                    let response = Response::Report(content);
+                    let response_json = serde_json::to_string(&response).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(response_json.as_bytes())
+                        .await
+                        .unwrap();
+                    reader.get_mut().write_all(b"\n").await.unwrap();
+                }
+                Request::GenerateReport => {
+                    let locked_state = state.lock().await;
+                    let total_books = locked_state.books.len();
+                    let borrowed_books =
+                        locked_state.books.iter().filter(|b| b.is_borrowed).count();
+                    let total_members = locked_state.members.len();
+                    let active_loans = locked_state.loans.iter().filter(|l| !l.returned).count();
+                    let total_fines = locked_state.fines.len();
+
+                    let report_text = format!(
+                        "=== Library Report ===\nTotal Books: {}\nBorrowed Books: {}\nTotal Members: {}\nActive Loans: {}\nTotal Fines: {}\n",
+                        total_books, borrowed_books, total_members, active_loans, total_fines
+                    );
+
+                    std::fs::write("report.txt", &report_text).unwrap();
+
+                    drop(locked_state);
+
+                    let response = Response::Report(report_text);
                     let response_json = serde_json::to_string(&response).unwrap();
                     reader
                         .get_mut()
