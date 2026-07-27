@@ -1,0 +1,6 @@
+=== Library Report ===
+Total Books: 0
+Borrowed Books: 0
+Total Members: 3
+Active Loans: 1
+Total Fines: 0

@@ -393,7 +393,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Request::ViewLog => {
                     let content = match std::fs::read_to_string("operation_log.txt") {
                         Ok(text) => text,
-                        Err(_) => String::from(" No log entries yet"),
+                        Err(e) => format!("Error reading log: {}", e),
                     };
                     let response = Response::Report(content);
                     let response_json = serde_json::to_string(&response).unwrap();
